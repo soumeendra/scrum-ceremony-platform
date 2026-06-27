@@ -1,0 +1,108 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend-quality:
+    name: Backend Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pytest-cov
+
+      - name: Ruff lint
+        run: ruff check backend/
+
+      - name: Ruff format check
+        run: ruff format --check backend/
+
+      - name: mypy type check
+        run: mypy backend/
+
+      - name: pytest with coverage
+        run: pytest backend/tests/ -v --cov=backend/app --cov-report=xml --cov-fail-under=80
+
+  frontend-quality:
+    name: Frontend Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Biome check
+        run: cd frontend && npx biome check .
+
+      - name: TypeScript check
+        run: cd frontend && npx tsc --noEmit
+
+      - name: ESLint
+        run: cd frontend && npm run lint
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python, javascript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  guardrails:
+    name: Architecture Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check no raw SQL without tenant_id
+        run: |
+          # Grep for raw SQL patterns that might bypass RLS
+          if grep -r "text(" backend/app/ --include="*.py" | grep -v "tenant_id" | grep -i "SELECT\|INSERT\|UPDATE\|DELETE"; then
+            echo "WARNING: Raw SQL found without tenant_id filter. Review required."
+            exit 1
+          fi
+
+      - name: Check no author_id leak in board responses
+        run: |
+          # Ensure anonymous endpoints don't expose author_id
+          if grep -r "author_id" backend/app/api/ --include="*.py" | grep -v "anonymous_author_map"; then
+            echo "WARNING: author_id may be exposed in API response. Review required."
+            exit 1
+          fi
+
+      - name: Verify FSM transitions match spec
+        run: |
+          # This will be implemented when backend code exists
+          echo "FSM conformance check placeholder"

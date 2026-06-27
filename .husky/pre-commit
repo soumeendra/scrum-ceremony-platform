@@ -1,0 +1,27 @@
+#!/bin/sh
+# Pre-commit hook — runs quality gates before every commit
+
+echo "🔍 Running pre-commit quality gates..."
+
+# Backend checks (if backend/ exists)
+if [ -d "backend" ]; then
+  echo "  → Ruff lint..."
+  ruff check backend/ || exit 1
+
+  echo "  → Ruff format check..."
+  ruff format --check backend/ || exit 1
+
+  echo "  → mypy type check..."
+  mypy backend/ || exit 1
+fi
+
+# Frontend checks (if frontend/ exists)
+if [ -d "frontend" ]; then
+  echo "  → Biome check..."
+  cd frontend && npx biome check . || exit 1
+
+  echo "  → TypeScript check..."
+  npx tsc --noEmit || exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
