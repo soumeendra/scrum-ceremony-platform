@@ -1,0 +1,195 @@
+version: "3.9"
+
+# Development environment for Scrum Ceremony Platform
+# Usage: docker compose up -d
+
+services:
+  # ============================================
+  # PostgreSQL + pgvector
+  # ============================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: scp-postgres
+    environment:
+      POSTGRES_USER: scp_user
+      POSTGRES_PASSWORD: scp_dev_password
+      POSTGRES_DB: scp_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scp_user -d scp_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scp-network
+
+  # ============================================
+  # Redis (sessions, presence, voter tokens, DLQ)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: scp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scp-network
+
+  # ============================================
+  # Backend API (FastAPI)
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scp_user:scp_dev_password@postgres:5432/scp_platform
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev-secret-key-change-in-production
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      ENV: development
+      LOG_LEVEL: DEBUG
+      CORS_ORIGINS: http://localhost:3000
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: gemma3:9b
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ERPNEXT_URL: http://erpnext:8080
+      ERPNEXT_API_KEY: ${ERPNext_API_KEY:-}
+      ERPNEXT_API_SECRET: ${ERPNext_API_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - scp-network
+
+  # ============================================
+  # Frontend (Next.js)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: scp-frontend
+    environment:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - scp-network
+
+  # ============================================
+  # Ollama (Local LLM — requires GPU)
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: scp-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - scp-network
+    profiles:
+      - gpu  # Only start with: docker compose --profile gpu up -d
+
+  # ============================================
+  # ERPNext (Back-office CRM/Finance)
+  # ============================================
+  erpnext:
+    image: frappe/erpnext:v15-latest
+    container_name: scp-erpnext
+    environment:
+      ERPNEXT_SITE: erpnext.localhost
+      ERPNEXT_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - erpnext_data:/home/frappe/frappe-bench/sites
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks:
+      - scp-network
+    profiles:
+      - full  # Only start with: docker compose --profile full up -d
+
+  # ============================================
+  # Database Migrations (one-shot)
+  # ============================================
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scp_user:scp_dev_password@postgres:5432/scp_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scp-network
+    profiles:
+      - migrate  # Run with: docker compose --profile migrate run --rm migrate
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  erpnext_data:
+
+networks:
+  scp-network:
+    driver: bridge
