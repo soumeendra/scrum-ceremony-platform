@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Full development environment for Scrum Ceremony Platform
+# Usage: docker compose up -d
+
+services:
+  # ============================================
+  # PostgreSQL + pgvector
+  # ============================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: scp-postgres
+    environment:
+      POSTGRES_USER: scp_user
+      POSTGRES_PASSWORD: scp_dev_password
+      POSTGRES_DB: scp_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scp_user -d scp_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scp-network
+
+  # ============================================
+  # Redis (sessions, presence, voter tokens, DLQ)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: scp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scp-network
+
+  # ============================================
+  # Backend API (FastAPI)
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scp_user:scp_dev_password@postgres:5432/scp_platform
+      REDIS_URL: redis://redis:***@postgres:5432/scp_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scp-network
+    profiles:
+      - full  # Run with: docker compose --profile full up -d
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  scp-network:
+    driver: bridge
