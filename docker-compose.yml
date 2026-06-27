@@ -53,6 +53,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: scp-backend
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://scp_user:scp_dev_password@postgres:5432/scp_platform
       REDIS_URL: redis://redis:***@postgres:5432/scp_platform
@@ -61,8 +63,25 @@ services:
         condition: service_healthy
     networks:
       - scp-network
-    profiles:
-      - full  # Run with: docker compose --profile full up -d
+    restart: unless-stopped
+
+  # ============================================
+  # Frontend (Next.js)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scp-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - scp-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
