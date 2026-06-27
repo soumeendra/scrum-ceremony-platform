@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
@@ -35,7 +35,9 @@ class Ceremony(UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, Base):
         Enum(CeremonyStateEnum),
         default=CeremonyStateEnum.DRAFT,
     )
-    facilitate_ai: Mapped[bool] = mapped_column(default=False)
+    current_phase: Mapped[str] = mapped_column(String(50), default="draft")
+    anonymity_config: Mapped[str | None] = mapped_column(Text, nullable=True, comment="JSON: per-phase anonymity settings")
+    facilitate_ai: Mapped[bool] = mapped_column(Boolean, default=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ended_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -67,9 +69,11 @@ class BoardItem(UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, Base):
     __table_args__ = (*TenantMixin._tenant_table_args(),)
 
     ceremony_id: Mapped[str] = mapped_column(String(36), ForeignKey("ceremonies.id"), nullable=False)
-    column_name: Mapped[str] = mapped_column(String(100), nullable=False)  # went_well, improve, actions
+    column_name: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    author_display_id: Mapped[str | None] = mapped_column(String(36), nullable=True, comment="Links to anonymous_author_map")
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    author_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    author_display: Mapped[str] = mapped_column(String(100), default="Anonymous")
     cluster_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("clusters.id"), nullable=True)
     order: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -93,10 +97,14 @@ class Vote(UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, Base):
     """A vote on a board item."""
 
     __tablename__ = "votes"
-    __table_args__ = (*TenantMixin._tenant_table_args(),)
+    __table_args__ = (
+        *TenantMixin._tenant_table_args(),
+        UniqueConstraint("board_item_id", "voter_token", name="uq_vote_item_token"),
+    )
 
     board_item_id: Mapped[str] = mapped_column(String(36), ForeignKey("board_items.id"), nullable=False)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    voter_token: Mapped[str] = mapped_column(String(36), nullable=False)
     value: Mapped[int] = mapped_column(Integer, default=1)
 
     # Relationships

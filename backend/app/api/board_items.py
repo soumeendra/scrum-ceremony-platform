@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import CurrentUser
 from app.models.ceremony import BoardItem
+from app.services.anonymity import AnonymityEngine
 
 router = APIRouter()
 
@@ -22,29 +23,9 @@ async def list_items(
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Return all board items for a ceremony (tenant-scoped)."""
-    stmt = (
-        select(BoardItem)
-        .where(BoardItem.ceremony_id == ceremony_id)
-        .where(BoardItem.tenant_id == user.org_id)
-        .order_by(BoardItem.created_at)
-    )
-    result = (await db.execute(stmt)).scalars().all()
-    return {
-        "items": [
-            {
-                "id": item.id,
-                "ceremony_id": item.ceremony_id,
-                "column_name": item.column_name,
-                "content": item.content,
-                "author_display": item.author_display_id,  # Anonymous or display name
-                "cluster_id": item.cluster_id,
-                "order": item.order,
-                "created_at": item.created_at,
-            }
-            for item in result
-        ]
-    }
+    """Return all board items for a ceremony (anonymized)."""
+    items = await AnonymityEngine.get_display_items(db, ceremony_id)
+    return {"items": items}
 
 
 @router.post("/{ceremony_id}/items", status_code=status.HTTP_201_CREATED, summary="Add board item")
@@ -54,23 +35,24 @@ async def add_item(
     db: Annotated[AsyncSession, Depends(get_db)],
     content: str,
     column_name: str = "default",
+    is_anonymous: bool = False,
 ) -> dict:
-    """Add a new sticky note to the board."""
-    item = BoardItem(
-        id=str(uuid4()),
+    """Add a new sticky note to the board (with optional anonymity)."""
+    item = await AnonymityEngine.create_board_item(
+        db=db,
         ceremony_id=ceremony_id,
         tenant_id=user.org_id,
-        column_name=column_name,
         content=content,
-        author_display_id=user.email,  # Will be "Anonymous" if anonymous mode
+        column_name=column_name,
+        user_id=user.id,
+        is_anonymous=is_anonymous,
     )
-    db.add(item)
-    await db.flush()
     return {
         "id": item.id,
         "content": item.content,
         "column_name": item.column_name,
-        "author_display": item.author_display_id,
+        "is_anonymous": item.is_anonymous,
+        "author_display": "Anonymous" if item.is_anonymous else item.author_display,
     }
 
 
