@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
+    # ── Clerk Auth ────────────────────────────────────────────────────────
+    CLERK_SECRET_KEY: str = ""
+    CLERK_JWKS_URL: str = ""
+
     # ── Pagination ─────────────────────────────────────────────────────────
     PAGE_SIZE_DEFAULT: int = 20
     PAGE_SIZE_MAX: int = 100
