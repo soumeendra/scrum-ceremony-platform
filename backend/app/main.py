@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health_router, teams_router, ceremonies_router, board_items_router, actions_router, templates_router, analytics_router, integrations_router
 from app.api.votes import router as votes_router
+from app.api.integrations import router as integration_api_router
 from app.ws.server import router as ws_router
 from app.core.config import settings
 from app.core.database import db_engine, async_session_factory, set_tenant_context
@@ -94,6 +95,9 @@ def create_app() -> FastAPI:
 
     # ── Voting ─────────────────────────────────────────────────────────────
     app.include_router(votes_router, prefix="/api/v1/ceremonies", tags=["votes"])
+
+    # ── Integrations ───────────────────────────────────────────────────────
+    app.include_router(integration_api_router, prefix="/api/v1/integrations", tags=["integrations"])
 
     return app
 

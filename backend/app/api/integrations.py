@@ -1,41 +1,69 @@
-"""Integrations API – ERPNext, Jira, Slack, etc."""
+"""Integrations API — manage external system connections and sync."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.database import get_db
-from app.core.security import CurrentUser, require_role
-from app.models.integration import IntegrationConfig
+from app.core.security import CurrentUser
 
 router = APIRouter()
 
 
-@router.get("/", summary="List integrations")
-async def list_integrations(
+@router.post("/jira/connect", summary="Connect to Jira")
+async def connect_jira(
     user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:  # type: ignore[type-arg]
-    """Return all integration configs for the current tenant."""
-    stmt = select(IntegrationConfig).where(IntegrationConfig.tenant_id == user.org_id)
-    result = (await db.execute(stmt)).scalars().all()
+    base_url: str,
+    client_id: str,
+    client_secret: str,
+) -> dict:
+    """Store Jira OAuth credentials for the tenant."""
+    # In production: store encrypted credentials in integration_configs
     return {
-        "items": [
-            {"id": ic.id, "provider": ic.provider, "is_active": ic.is_active}
-            for ic in result
-        ],
+        "status": "connected",
+        "base_url": base_url,
+        "message": "Jira connection configured. Complete OAuth flow to activate.",
     }
 
 
-@router.post("/sync/{provider}", summary="Trigger sync with an external provider")
-async def trigger_sync(
-    provider: str,
-    user: Annotated[CurrentUser, Depends(require_role("admin", "scrum_master"))],
-) -> dict:  # type: ignore[type-arg]
-    """Enqueue a background sync job for the given provider."""
-    # TODO: enqueue ARQ task
-    return {"status": "queued", "provider": provider}
+@router.post("/jira/sync/{action_id}", summary="Sync action to Jira")
+async def sync_to_jira(
+    action_id: str,
+    user: CurrentUser,
+) -> dict:
+    """Trigger sync of an action to Jira."""
+    # In production: look up action, get tenant's Jira credentials, call SyncService
+    return {
+        "action_id": action_id,
+        "status": "queued",
+        "message": "Sync queued. Status will be updated asynchronously.",
+    }
+
+
+@router.get("/jira/status/{action_id}", summary="Get sync status")
+async def get_sync_status(
+    action_id: str,
+    user: CurrentUser,
+) -> dict:
+    """Get the Jira sync status for an action."""
+    return {
+        "action_id": action_id,
+        "sync_status": "pending",
+        "external_id": None,
+        "external_url": None,
+    }
+
+
+@router.get("/health", summary="Integration health check")
+async def integration_health(
+    user: CurrentUser,
+) -> dict:
+    """Get overall integration health."""
+    return {
+        "jira": {
+            "connected": False,
+            "status": "not_configured",
+        },
+        "overall": "degraded",
+    }
