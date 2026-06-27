@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health_router, teams_router, ceremonies_router, actions_router, templates_router, analytics_router, integrations_router
+from app.ws.server import router as ws_router
 from app.core.config import settings
 from app.core.database import db_engine, async_session_factory, set_tenant_context
 from app.core.security import ClerkJWKS
@@ -86,6 +87,9 @@ def create_app() -> FastAPI:
     app.include_router(templates_router, prefix="/api/v1/templates", tags=["templates"])
     app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])
     app.include_router(integrations_router, prefix="/api/v1/integrations", tags=["integrations"])
+
+    # ── WebSocket ──────────────────────────────────────────────────────────
+    app.include_router(ws_router, prefix="/ws")
 
     return app
 
