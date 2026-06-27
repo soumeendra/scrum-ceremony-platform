@@ -22,25 +22,46 @@ class AnalyticsService:
     """Compute analytics metrics for teams and ceremonies."""
 
     async def get_participation_metrics(self, ceremony_id: str) -> dict[str, Any]:
-        """Get participation metrics for a ceremony."""
+        """Get participation metrics for a ceremony including equity score."""
         async with async_session_factory() as session:
+            # Get items per author
             result = await session.execute(
-                select(func.count(func.distinct(BoardItem.author_id)))
+                select(BoardItem.author_id, func.count())
                 .where(BoardItem.ceremony_id == ceremony_id)
+                .group_by(BoardItem.author_id)
             )
-            contributor_count = result.scalar() or 0
+            author_counts = {row[0]: row[1] for row in result.all()}
 
-            result = await session.execute(
-                select(func.count()).where(BoardItem.ceremony_id == ceremony_id)
-            )
-            total_items = result.scalar() or 0
+        contributor_count = len(author_counts)
+        total_items = sum(author_counts.values())
+
+        # Calculate Gini coefficient for participation equity
+        gini = self._gini_coefficient(list(author_counts.values())) if author_counts else 1.0
+
+        # Silent participants (team members who didn't contribute)
+        # In production: compare against team_members count
+        silent = max(0, 0)  # Placeholder
 
         return {
             "contributor_count": contributor_count,
             "total_items": total_items,
-            "silent_participants": max(0, 0),  # TODO: compare to team size
+            "silent_participants": silent,
             "items_per_contributor": round(total_items / max(contributor_count, 1), 1),
+            "participation_balance": round((1 - gini) * 100, 1),  # 100 = perfectly equal
+            "gini_coefficient": round(gini, 3),
+            "distribution": author_counts,
         }
+
+    @staticmethod
+    def _gini_coefficient(values: list[int]) -> float:
+        """Calculate Gini coefficient (0 = perfect equality, 1 = perfect inequality)."""
+        if not values or sum(values) == 0:
+            return 1.0
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        cumulative = sum((i + 1) * v for i, v in enumerate(sorted_vals))
+        total = sum(sorted_vals)
+        return (2 * cumulative) / (n * total) - (n + 1) / n
 
     async def get_action_metrics(self, team_id: str) -> dict[str, Any]:
         """Get action item metrics for a team."""
