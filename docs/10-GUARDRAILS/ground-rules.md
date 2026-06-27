@@ -1,6 +1,6 @@
 # Scrum Ceremony Platform — Agentic Development Ground Rules
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Date:** 2026-06-27  
 **Source:** Adapted from Avinya Ground Rules v2.0 + SAW (SAFe Agentic Workflow) best practices
 
@@ -83,16 +83,6 @@ Replaces SonarQube — no subscription needed.
 Built into GitHub Actions, free for public repos.
 Catches: SQL injection, XSS, hardcoded secrets, insecure deserialization, CWE Top 25.
 
-```yaml
-# In CI workflow
-- name: Initialize CodeQL
-  uses: github/codeql-action/init@v3
-  with:
-    languages: python, javascript
-- name: Perform CodeQL Analysis
-  uses: github/codeql-action/analyze@v3
-```
-
 ### 3.4 Coverage Gate
 
 | Metric | Threshold |
@@ -100,7 +90,36 @@ Catches: SQL injection, XSS, hardcoded secrets, insecure deserialization, CWE To
 | Code Coverage | ≥ 80% |
 | No new CodeQL security alerts | Required |
 
-### 3.5 Quality Gate Flow
+### 3.5 Domain-Specific Guardrails (Ceremony-Specific Validation)
+
+In addition to standard linting, the following ceremony-specific checks MUST pass:
+
+| Guardrail | Script | What It Catches | When It Runs |
+|-----------|--------|-----------------|--------------|
+| **Anonymity Invariant Check** | `scripts/verify_anonymity.py` | Ensures `board_items` table never contains `author_id` when `is_anonymous=true`; verifies `anonymous_author_map` is the sole identity path | Pre-commit + CI |
+| **FSM Transition Validity** | `scripts/verify_fsm.py` | Validates that all ceremony state transitions in code match the spec in `docs/03-ARCHITECTURE/ceremony-state-machine.md`; detects invalid transitions | Pre-commit + CI |
+| **Tenant Isolation Check** | `scripts/verify_tenant_isolation.py` | Scans all API endpoints for missing `tenant_id` filters; ensures no cross-tenant query paths exist | CI only |
+| **Idempotency Key Verification** | `scripts/verify_idempotency.py` | Ensures all integration sync operations (Jira, ERPNext, Stripe) include idempotency keys | CI only |
+| **CRDT Schema Conformance** | `scripts/verify_yjs_schema.py` | Validates Yjs document structure against `data-model.md` schema; ensures no `author_id` in anonymous board items | Pre-commit + CI |
+| **Vote Token Uniqueness** | `scripts/verify_vote_tokens.py` | Ensures voter tokens are per-ceremony UUIDs, never user IDs; validates UNIQUE constraint on `(item_id, voter_token)` | CI only |
+
+```bash
+# Domain-specific hooks run AFTER standard hooks:
+echo "🔬 Running ceremony-specific guardrails..."
+python scripts/verify_anonymity.py || exit 1
+python scripts/verify_fsm.py || exit 1
+python scripts/verify_yjs_schema.py || exit 1
+echo "✅ Ceremony guardrails passed!"
+```
+
+**Why these matter:**
+- **Anonymity breaches** are existential — a single leak destroys trust in the entire product
+- **FSM violations** can leave ceremonies stuck in invalid states, losing team data
+- **Tenant isolation failures** expose one organization's retros to another
+- **Missing idempotency** causes duplicate Jira tickets and billing double-charges
+- **CRDT schema drift** causes real-time sync corruption across participants
+
+### 3.6 Quality Gate Flow
 
 ```
 git commit
@@ -109,7 +128,10 @@ git commit
 │  ├─ Ruff (lint + format)    │
 │  ├─ Biome (lint + format)   │
 │  ├─ TypeScript type check   │
-│  └─ Relevant unit tests     │
+│  ├─ Standard unit tests     │
+│  ├─ Anonymity invariant     │  ← Domain-specific
+│  ├─ FSM transition validity │  ← Domain-specific
+│  └─ CRDT schema conformance │  ← Domain-specific
 │                             │
 │  ❌ FAIL → Fix & re-commit  │
 │  ✅ PASS → Commit succeeds  │
@@ -120,7 +142,9 @@ git commit
 │  ├─ All pre-commit checks   │
 │  ├─ pytest + coverage ≥80%  │
 │  ├─ CodeQL security scan    │
-│  └─ Build verification      │
+│  ├─ Tenant isolation check  │  ← Domain-specific
+│  ├─ Idempotency key check   │  ← Domain-specific
+│  └─ Vote token validation   │  ← Domain-specific
 │                             │
 │  ❌ FAIL → PR blocked       │
 │  ✅ PASS → PR can be opened │
@@ -151,6 +175,7 @@ git commit
 | API Integration | Backend endpoints return correct data | `tests/playwright/api/` |
 | Visual Regression | Screenshot comparison for UI pages | `tests/playwright/visual/` |
 | Performance | Page load times, API response times | `tests/playwright/perf/` |
+| Anonymity E2E | Anonymous notes never leak author identity | `tests/playwright/security/` |
 
 ### 4.3 Staging Test Flow
 
@@ -161,6 +186,7 @@ Code merged to develop
       ├─ Smoke tests (5 min)
       ├─ Regression suite (15 min)
       ├─ API integration (5 min)
+      ├─ Anonymity E2E (5 min)
       └─ Visual regression (5 min)
   → ❌ FAIL → Alert you, block production deploy
   → ✅ PASS → Notify you: "Staging ready for review"
@@ -232,6 +258,7 @@ docs/
 ├── 09-RELEASE-PLAN/
 │   └── roadmap.md
 └── 10-GUARDRAILS/
+    ├── ground-rules.md
     └── vibe-coding-zones.md
 ```
 
@@ -253,20 +280,72 @@ Your request
   → PR created → Quality Gate → Staging → Your GO → Production → Docs updated
 ```
 
-### 7.2 Agent Session Protocols (Start/End Task)
+### 7.2 Session Workflows (Start/End Task Protocols)
 
-**Start Task Protocol:**
-When you say "Begin T-001", I must automatically:
-1. Read the relevant docs for context
-2. Scan the active schema of relevant database tables
-3. Check existing dependencies before inventing new ones
-4. Output a 3-bullet execution plan for your approval BEFORE writing code
+These protocols are MANDATORY. I must follow them for every task without exception.
 
-**End Task Protocol:**
-Before telling you a PR is ready, I must autonomously run:
-1. `ruff check` and `biome check` locally
-2. The specific `pytest` suite for that module
-3. If tests fail, self-correct up to 3 times before asking for help
+#### START TASK PROTOCOL (The `/start-work` equivalent)
+
+When you say "Begin T-001" or assign any task, I MUST complete this checklist BEFORE writing any code:
+
+```
+□ 1. READ CONTEXT
+     → Read the linked docs (architecture, data model, relevant ADR)
+     → Read the Huly story for acceptance criteria
+     → Check the ceremony state machine if the task touches ceremony flow
+
+□ 2. SCAN ENVIRONMENT
+     → Check current database schema (peek_db.py or Alembic heads)
+     → Check existing dependencies (requirements.txt, package.json)
+     → Verify no new dependencies needed before inventing them
+
+□ 3. OUTPUT EXECUTION PLAN
+     → Present a 3-5 bullet plan: what I'll change, in what order, what could break
+     → Identify which zone (GREEN/RED) the work falls into
+     → For RED zone: flag that human review will be required before merge
+     → WAIT for your approval before proceeding
+```
+
+#### END TASK PROTOCOL (The `/pre-pr` equivalent)
+
+Before declaring any task complete and creating a PR, I MUST autonomously run this checklist:
+
+```
+□ 1. LOCAL QUALITY GATES
+     → ruff check backend/ && ruff format --check backend/
+     → biome check frontend/
+     → npx tsc --noEmit -p frontend/
+     → mypy backend/
+
+□ 2. DOMAIN-SPECIFIC GUARDRAILS
+     → python scripts/verify_anonymity.py (if anonymity code touched)
+     → python scripts/verify_fsm.py (if ceremony flow touched)
+     → python scripts/verify_yjs_schema.py (if board/collaboration code touched)
+     → python scripts/verify_tenant_isolation.py (if API code touched)
+
+□ 3. TEST SUITE
+     → pytest backend/tests/ -v --cov --cov-fail-under=80
+     → If ceremony feature: run specific Playwright tests for that ceremony
+     → If integration feature: run idempotency + conflict tests
+
+□ 4. SELF-CORRECTION LOOP
+     → If any check fails: fix the issue, re-run, repeat
+     → Maximum 3 self-correction attempts
+     → If still failing after 3 attempts: STOP, report to you with details
+
+□ 5. PR PREPARATION
+     → Fill PR description template completely
+     → Link to Huly story (T-xxx)
+     → Attach screenshots for UI changes
+     → Confirm all checklist items checked
+     → Only THEN notify you: "PR ready for review"
+```
+
+**Why these protocols exist:**
+- Prevents context drift (yesterday's task bleeding into today's)
+- Catches errors BEFORE they burn CI minutes or your review time
+- Ensures I validate my own work before asking you to
+- Makes RED zone code safe through mandatory domain-specific checks
 
 ## 8. Approval Gates
 
@@ -275,8 +354,8 @@ Before telling you a PR is ready, I must autonomously run:
 | Bug fixes (existing features) | ✅ | |
 | Small UI changes | ✅ | |
 | Unit tests | ✅ | |
-| New feature (single module) | ✅ | |
-| New feature (multi-module) | | ✅ |
+| New feature (single module, GREEN zone) | ✅ | |
+| New feature (multi-module or RED zone) | | ✅ |
 | Database schema changes | | ✅ |
 | API contract changes | | ✅ |
 | New third-party integration | | ✅ |
@@ -323,6 +402,7 @@ Link to task: T-xxx
 - [ ] Tests pass (≥80% coverage)
 - [ ] CodeQL security scan clean
 - [ ] No secrets in code
+- [ ] Domain guardrails pass (anonymity, FSM, tenant isolation)
 - [ ] Docs updated (if prod-facing)
 ```
 
@@ -348,7 +428,7 @@ scrum-ceremony-platform/
 │       ├── deploy-staging.yml        # Auto-deploy to staging
 │       └── deploy-prod.yml           # Manual trigger, needs approval
 ├── .husky/                           # Git hooks (pre-commit, pre-push)
-│   ├── pre-commit                    # Ruff, Biome, type checks
+│   ├── pre-commit                    # Ruff, Biome, type checks, domain guardrails
 │   └── pre-push                      # Full test suite
 ├── .hermes.md                        # Hermes guardrails (RED/GREEN zones)
 ├── backend/
@@ -397,12 +477,23 @@ scrum-ceremony-platform/
 │       ├── regression/
 │       ├── api/
 │       ├── visual/
+│       ├── security/                 # Anonymity E2E tests
 │       └── playwright.config.ts
 ├── database/
 │   └── docker-compose.yml            # Local PostgreSQL + Redis
+├── scripts/
+│   └── agent_tools/                  # Agent Skills (read-only context gathering)
+│       ├── peek_db.py
+│       ├── mock_api_response.py
+│       ├── test_ceremony_fsm.py
+│       ├── check_anonymity.py
+│       ├── verify_anonymity.py
+│       ├── verify_fsm.py
+│       ├── verify_tenant_isolation.py
+│       ├── verify_idempotency.py
+│       ├── verify_yjs_schema.py
+│       └── verify_vote_tokens.py
 ├── docs/                             # Project documentation (see 6.1)
-├── scripts/                          # Utility & agent tools
-│   └── agent_tools/                  # Read-only context gathering scripts
 ├── stories/                          # User story backlog
 └── README.md
 ```
@@ -427,23 +518,48 @@ scrum-ceremony-platform/
 
 ## 13. Agent Skills (Autonomous Context Gathering)
 
-I have read-only utility scripts in `scripts/agent_tools/`. I am authorized and encouraged to run these autonomously during development:
+I have read-only utility scripts in `scripts/agent_tools/`. I am authorized and encouraged to run these autonomously during development to understand the environment without asking you:
 
-| Script | Purpose |
-|--------|---------|
-| `python scripts/agent_tools/peek_db.py [table]` | Returns schema + 5 sample rows |
-| `python scripts/agent_tools/mock_api.py [endpoint]` | Returns API response structure |
-| `python scripts/agent_tools/test_ceremony_fsm.py` | Validates ceremony state machine transitions |
-| `python scripts/agent_tools/check_anonymity.py [ceremony_id]` | Verifies anonymity invariants |
+### Context Gathering Skills (Read-Only)
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `python scripts/agent_tools/peek_db.py [table]` | Returns schema + 5 sample rows of any table | Before writing queries or models |
+| `python scripts/agent_tools/mock_api_response.py [endpoint]` | Returns the exact JSON structure of any API | Before writing API integration code |
+| `python scripts/agent_tools/test_ceremony_fsm.py` | Validates current FSM implementation against spec | After any ceremony flow changes |
+| `python scripts/agent_tools/check_anonymity.py [ceremony_id]` | Verifies anonymity invariants for a ceremony | After any board/anonymity code changes |
+| `python scripts/agent_tools/get_ceremony_state.py [id]` | Returns current ceremony state + phase history | Debugging stuck ceremonies |
+| `python scripts/agent_tools/list_active_teams.py` | Returns teams with recent activity | Understanding usage patterns |
+| `python scripts/agent_tools/check_sync_status.py [team_id]` | Returns Jira/ERPNext sync status + DLQ depth | Debugging integration issues |
+| `python scripts/agent_tools/ollama_benchmark.py` | Runs inference latency benchmark | After AI model or prompt changes |
+
+### Verification Skills (Guardrail Enforcement)
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `python scripts/agent_tools/verify_anonymity.py` | Scans all anonymity code paths | Pre-commit + CI |
+| `python scripts/agent_tools/verify_fsm.py` | Validates FSM transitions match spec | Pre-commit + CI |
+| `python scripts/agent_tools/verify_tenant_isolation.py` | Checks all APIs for tenant_id filters | CI only |
+| `python scripts/agent_tools/verify_idempotency.py` | Checks integration sync has idempotency keys | CI only |
+| `python scripts/agent_tools/verify_yjs_schema.py` | Validates Yjs document structure | Pre-commit + CI |
+| `python scripts/agent_tools/verify_vote_tokens.py` | Validates vote token uniqueness constraints | CI only |
+
+**Why these skills matter:**
+- I don't have to copy-paste database schemas into chat — I can look them up myself
+- I can verify my own work before declaring a task complete
+- Domain-specific guardrails catch errors that standard linters miss (anonymity leaks, FSM violations)
+- Reduces your review burden — I catch issues before you see the PR
 
 ## 14. Error Handling
 
 | Scenario | Response |
 |----------|----------|
 | Pre-commit hook fails | Auto-fix what's possible (Ruff format), report what needs manual fix |
+| Domain guardrail fails | STOP — do not proceed until resolved. Report specific violation. |
 | CI pipeline fails | Analyze logs, create fix task, notify you if blocked |
 | CodeQL blocker | Create fix task, don't open PR until resolved |
 | Playwright test fails | Analyze screenshot diff, fix or flag for your review |
+| Anonymity E2E fails | Treat as SEV1 — immediate fix required, no exceptions |
 | Staging deploy fails | Auto-rollback, notify you with error |
 | Production deploy fails | Auto-rollback to previous tag, alert you immediately |
 
@@ -452,4 +568,4 @@ I have read-only utility scripts in `scripts/agent_tools/`. I am authorized and 
 - ERPNext core modifications (use custom doctypes only)
 - Jira plugin development (use REST API + OAuth)
 - Mobile app development (responsive web only in Year 1)
-- NSE/BSE/exchange API integrations (not applicable)
+- Building a generic whiteboard (we are ceremony-specific, not Miro)
