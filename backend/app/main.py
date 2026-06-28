@@ -13,6 +13,7 @@ from app.api import health_router, teams_router, ceremonies_router, board_items_
 from app.api.poker import router as poker_router
 from app.api.standup import router as standup_router
 from app.api.api_v1 import router as api_v1_router
+from app.api.sso import router as sso_router
 from app.api.notifications import router as notifications_router
 from app.api.shared_ceremonies import router as shared_ceremonies_router
 from app.api.billing import router as billing_router
@@ -131,6 +132,9 @@ def create_app() -> FastAPI:
 
     # ── API Meta ───────────────────────────────────────────────────────────
     app.include_router(api_v1_router, tags=["api"])
+
+    # ── SSO & SCIM ─────────────────────────────────────────────────────────
+    app.include_router(sso_router, prefix="/api/v1/sso", tags=["sso"])
 
     return app
 
