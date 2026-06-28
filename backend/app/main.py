@@ -13,6 +13,9 @@ from app.api import health_router, teams_router, ceremonies_router, board_items_
 from app.api.billing import router as billing_router
 from app.api.ai import router as ai_router
 from app.api.integrations import router as integration_api_router
+from app.api.export import router as export_router
+from app.api.audit import router as audit_router
+from app.api.compliance import router as compliance_router
 from app.ws.server import router as ws_router
 from app.core.config import settings
 from app.core.database import db_engine, async_session_factory, set_tenant_context
@@ -105,6 +108,13 @@ def create_app() -> FastAPI:
 
     # ── Billing ────────────────────────────────────────────────────────────
     app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+
+    # ── Export & Audit ─────────────────────────────────────────────────────
+    app.include_router(export_router, prefix="/api/v1/export", tags=["export"])
+    app.include_router(audit_router, prefix="/api/v1/audit", tags=["audit"])
+
+    # ── Compliance ─────────────────────────────────────────────────────────
+    app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["compliance"])
 
     return app
 
