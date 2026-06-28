@@ -10,6 +10,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health_router, teams_router, ceremonies_router, board_items_router, actions_router, templates_router, analytics_router, integrations_router
+from app.api.poker import router as poker_router
+from app.api.standup import router as standup_router
 from app.api.billing import router as billing_router
 from app.api.ai import router as ai_router
 from app.api.integrations import router as integration_api_router
@@ -115,6 +117,10 @@ def create_app() -> FastAPI:
 
     # ── Compliance ─────────────────────────────────────────────────────────
     app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["compliance"])
+
+    # ── Multi-Ceremony ─────────────────────────────────────────────────────
+    app.include_router(poker_router, prefix="/api/v1/poker", tags=["poker"])
+    app.include_router(standup_router, prefix="/api/v1/standup", tags=["standup"])
 
     return app
 
