@@ -14,6 +14,7 @@ from app.api.poker import router as poker_router
 from app.api.standup import router as standup_router
 from app.api.api_v1 import router as api_v1_router
 from app.api.sso import router as sso_router
+from app.api.admin import router as admin_router
 from app.api.template_governance import template_governance_router
 from app.api.notifications import router as notifications_router
 from app.api.shared_ceremonies import router as shared_ceremonies_router
@@ -139,6 +140,9 @@ def create_app() -> FastAPI:
 
     # ── Template Governance ─────────────────────────────────────────────────
     app.include_router(template_governance_router, prefix="/api/v1/templates/governance", tags=["templates"])
+
+    # ── Admin Console ───────────────────────────────────────────────────────
+    app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 
     return app
 
