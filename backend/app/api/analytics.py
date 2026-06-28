@@ -129,3 +129,50 @@ async def health_trend(
     service = AnalyticsService()
     trend = await service.get_health_trend(team_id, sprints)
     return {"team_id": team_id, "trend": trend}
+
+
+# ── Health Check Endpoints ──────────────────────────────────────────────────
+
+@router.post("/health/check/{ceremony_id}", summary="Submit health check")
+async def submit_health_check(
+    ceremony_id: str,
+    user: CurrentUser,
+    scores: dict[str, float],
+    team_id: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Submit a health check assessment after a retro."""
+    from app.services.health_service import HealthService
+    service = HealthService()
+    result = await service.submit_health_check(
+        ceremony_id=ceremony_id,
+        team_id=team_id or "",
+        tenant_id=user.org_id,
+        scores=scores,
+        notes=notes,
+    )
+    return result
+
+
+@router.get("/health/radar/{team_id}", summary="Health radar")
+async def health_radar(
+    team_id: str,
+    user: CurrentUser,
+    ceremony_id: str | None = None,
+) -> dict:
+    """Get health radar data for a team."""
+    from app.services.health_service import HealthService
+    service = HealthService()
+    return await service.get_health_radar(team_id, ceremony_id)
+
+
+@router.get("/participation/silent/{ceremony_id}", summary="Silent participants")
+async def silent_participants(
+    ceremony_id: str,
+    user: CurrentUser,
+    team_member_count: int = 10,
+) -> dict:
+    """Detect silent participants who didn't contribute."""
+    from app.services.health_service import HealthService
+    service = HealthService()
+    return await service.detect_silent_participants(ceremony_id, team_member_count)
