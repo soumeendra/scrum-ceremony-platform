@@ -15,6 +15,7 @@ from app.api.standup import router as standup_router
 from app.api.api_v1 import router as api_v1_router
 from app.api.sso import router as sso_router
 from app.api.admin import router as admin_router
+from app.api.enterprise import router as enterprise_router
 from app.api.template_governance import template_governance_router
 from app.api.notifications import router as notifications_router
 from app.api.shared_ceremonies import router as shared_ceremonies_router
@@ -143,6 +144,9 @@ def create_app() -> FastAPI:
 
     # ── Admin Console ───────────────────────────────────────────────────────
     app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
+
+    # ── Enterprise (SOC 2, Data Retention, Security) ────────────────────────
+    app.include_router(enterprise_router, tags=["enterprise"])
 
     return app
 
