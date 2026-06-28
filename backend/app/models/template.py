@@ -16,6 +16,9 @@ class Template(UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ceremony_type: Mapped[str] = mapped_column(String(50), nullable=False)  # retro, standup, planning, review
+    ceremony_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    scope: Mapped[str] = mapped_column(String(20), default="team")  # org, workspace, team
+    owner_id: Mapped[str] = mapped_column(String(36), nullable=True)
     structure: Mapped[dict] = mapped_column(Text, nullable=False, comment="JSON blob of template structure")
-    is_default: Mapped[bool] = mapped_column(default=False)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)

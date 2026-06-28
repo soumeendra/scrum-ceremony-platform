@@ -14,6 +14,7 @@ from app.api.poker import router as poker_router
 from app.api.standup import router as standup_router
 from app.api.api_v1 import router as api_v1_router
 from app.api.sso import router as sso_router
+from app.api.template_governance import template_governance_router
 from app.api.notifications import router as notifications_router
 from app.api.shared_ceremonies import router as shared_ceremonies_router
 from app.api.billing import router as billing_router
@@ -135,6 +136,9 @@ def create_app() -> FastAPI:
 
     # ── SSO & SCIM ─────────────────────────────────────────────────────────
     app.include_router(sso_router, prefix="/api/v1/sso", tags=["sso"])
+
+    # ── Template Governance ─────────────────────────────────────────────────
+    app.include_router(template_governance_router, prefix="/api/v1/templates/governance", tags=["templates"])
 
     return app
 
